@@ -1,0 +1,83 @@
+name: Content Bot (Crunchyroll News & YouTube Videos)
+
+on:
+  schedule:
+    # Run every 30 minutes between 8 AM and 10 PM UTC
+    - cron: '*/30 8-22 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    # Use the slimmer image to reduce startup time and resource usage
+    container: ubuntu:22.04
+    permissions:
+      contents: write
+    steps:
+      # 1. Checkout the repository using the PAT for authentication
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.PAT_FOR_COMMIT }}
+
+      # 2. Set up Python
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      # 3. Cache pip dependencies to speed up installation
+      - name: Cache pip dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # 4. Install dependencies
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 5. Create sent files and JSON files if they don't exist
+      - name: Ensure files exist
+        run: |
+          if [ ! -f sent_posts.txt ]; then
+            touch sent_posts.txt
+            echo "Created sent_posts.txt file"
+          fi
+          if [ ! -f sent_videos.txt ]; then
+            touch sent_videos.txt
+            echo "Created sent_videos.txt file"
+          fi
+          if [ ! -f crunchyroll_articles.json ]; then
+            echo "[]" > crunchyroll_articles.json
+            echo "Created crunchyroll_articles.json file"
+          fi
+          if [ ! -f youtube_videos.json ]; then
+            echo "[]" > youtube_videos.json
+            echo "Created youtube_videos.json file"
+          fi
+
+      # 6. Run the bot script
+      - name: Run the bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python bot.py
+
+      # 7. Commit and push the updated files
+      - name: Commit and push if changed
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add sent_posts.txt sent_videos.txt crunchyroll_articles.json youtube_videos.json
+          # Only commit if files have actually changed
+          if git diff --staged --quiet; then
+            echo "No changes to files, skipping commit."
+          else
+            git commit -m "bot: update content files"
+            git push
+          fi
